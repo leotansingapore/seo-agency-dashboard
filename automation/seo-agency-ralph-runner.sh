@@ -60,7 +60,20 @@ append_sheet() {
   local repo="$1"
   local story_id="$2"
   local status="$3"
-  claude -p --model haiku "Append a row to Google Sheet ID $SHEET_ID: Date=\"$(date '+%Y-%m-%d %H:%M')\", Type=\"Ralph\", Repo=\"$repo\", Story=\"$story_id\", Status=\"$status\". Use the google_sheets_create_spreadsheet_row Zapier tool." > /dev/null 2>&1 || true
+  local notes="${4:-}"
+  /usr/bin/python3 << PYEOF 2>> "$LOG_FILE" || true
+import sys, os
+sys.path.insert(0, os.path.expanduser("~/Documents/New project/tools"))
+try:
+    from lib.sheets import get_sheets_client
+    gc = get_sheets_client()
+    ss = gc.open_by_key("$SHEET_ID")
+    ws = ss.worksheet("Ralph Log")
+    from datetime import datetime
+    ws.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), "$repo", "$story_id", "", "$status", "$notes"])
+except Exception as e:
+    print(f"Ralph Log append failed: {e}")
+PYEOF
 }
 
 run_ralph_for_repo() {

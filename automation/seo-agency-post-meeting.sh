@@ -251,41 +251,56 @@ At the end, output a JSON array of action items:
 
 log "Analysis complete"
 
-# ── 4. Log attendance to Google Sheet ────────────────────────────
-log "Logging attendance + summary to Google Sheet"
+# ── 4. Log attendance + summary + ralph to Google Sheet (direct gspread) ────
+log "Logging to Google Sheet via gspread"
 
-python3 << PYEOF
-import subprocess, json
-from datetime import datetime
+/usr/bin/python3 << PYEOF
+import sys, os, re
+sys.path.insert(0, os.path.expanduser("~/Documents/New project/tools"))
 
-sheet_id = "$SHEET_ID"
-today = "$TODAY"
-speakers = "$SPEAKERS"
-meeting_type = "Monday Standup" if datetime.now().weekday() == 0 else "Friday Review"
+try:
+    from lib.sheets import get_sheets_client
+    gc = get_sheets_client()
+    ss = gc.open_by_key("$SHEET_ID")
 
-# Create/append attendance + summary to sheet
-summary_text = """$ANALYSIS"""[:800].replace('"', "'").replace('\n', ' | ')
+    from datetime import datetime
+    today = "$TODAY"
+    speakers = "$SPEAKERS"
+    recording = "$RECORDING_URL"
+    analysis = """$ANALYSIS"""
+    meeting_type = "Monday Standup" if datetime.now().weekday() == 0 else "Friday Review"
 
-prompt = f"""Use the Zapier Google Sheets tools to do these two things on Sheet ID {sheet_id}:
+    # Extract sections from analysis
+    def extract(label):
+        m = re.search(rf'\*\*{label}\*\*\s*\n(.*?)(?=\n\*\*|\Z)', analysis, re.DOTALL)
+        return m.group(1).strip() if m else ""
 
-1. Find or create a sheet tab called "Meeting Log". If it doesn't exist, create it with headers: Date, Type, Attendees, Summary, Action Items, Recording.
+    summary = extract("Meeting Summary")[:500]
+    decisions = extract("Key Decisions")[:500]
+    action_items = extract("Action Items")[:500]
+    followups = extract("Follow-ups for Next Meeting")[:300]
 
-2. Append a new row to the "Meeting Log" tab with:
-   - Date: {today}
-   - Type: {meeting_type}
-   - Attendees: {speakers}
-   - Summary: {summary_text[:400]}
-   - Action Items: (extract from the summary)
-   - Recording: $RECORDING_URL
+    # 1) Meeting Log tab
+    try:
+        ws = ss.worksheet("Meeting Log")
+        ws.append_row([today, meeting_type, speakers, summary, action_items, recording, decisions, followups])
+        print("Meeting Log: row added")
+    except Exception as e:
+        print(f"Meeting Log error: {e}")
 
-Use google_sheets_create_spreadsheet_row or google_sheets_lookup_spreadsheet_row as needed."""
-
-subprocess.run(
-    ["claude", "-p", "--model", "haiku", prompt],
-    capture_output=True, text=True, timeout=90
-)
-print("Sheet updated")
+    # 2) Attendance tab
+    try:
+        speaker_list = [s.strip() for s in speakers.split(",") if s.strip()]
+        count = len(speaker_list)
+        ws_att = ss.worksheet("Attendance")
+        ws_att.append_row([today, meeting_type, speakers, count, ""])
+        print(f"Attendance: {count} attendees logged")
+    except Exception as e:
+        print(f"Attendance error: {e}")
+except Exception as e:
+    print(f"Sheet logging failed (non-fatal): {e}")
 PYEOF
+log "Sheet logging complete"
 
 # ── 5. Create GitHub issues from action items ────────────────────
 log "Creating GitHub issues"

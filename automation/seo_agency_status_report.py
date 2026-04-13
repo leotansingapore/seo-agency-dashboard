@@ -226,27 +226,25 @@ def append_to_google_sheet(summary, all_data):
         "summary": summary.replace("\n", " ").replace("**", "")[:1000],
     }
 
-    # Try using Claude's Zapier MCP to append to sheet
+    # Append directly via gspread
     try:
-        result = subprocess.run(
-            [
-                "claude",
-                "-p",
-                "--model",
-                "haiku",
-                f'Append this row to Google Sheet ID {SHEET_ID}, sheet "Status Reports": Date="{row_data["date"]}", Total Commits={row_data["total_commits"]}, Repos="{row_data["repo_breakdown"]}", Summary="{row_data["summary"][:500]}". Use the google_sheets_create_spreadsheet_row Zapier tool.',
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if result.returncode == 0:
-            print("Google Sheet: row appended via Claude")
-        else:
-            print(f"Google Sheet: Claude append failed, saving locally")
-            _save_local_backup(row_data)
+        import sys as _sys
+        _sys.path.insert(0, os.path.expanduser("~/Documents/New project/tools"))
+        from lib.sheets import get_sheets_client
+
+        gc = get_sheets_client()
+        ss = gc.open_by_key(SHEET_ID)
+        ws = ss.worksheet("Status Reports")
+        ws.append_row([
+            row_data["date"],
+            row_data["total_commits"],
+            "Status Report",
+            row_data["repo_breakdown"],
+            row_data["summary"][:1000],
+        ])
+        print("Google Sheet: row appended via gspread")
     except Exception as e:
-        print(f"Google Sheet: error: {e}")
+        print(f"Google Sheet: gspread failed ({e}), saving locally")
         _save_local_backup(row_data)
 
 
