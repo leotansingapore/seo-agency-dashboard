@@ -15,6 +15,8 @@
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/Users/leo/.local/bin</string>
+        <key>HOME</key>
+        <string>/Users/leo</string>
     </dict>
     <key>StartCalendarInterval</key>
     <array>

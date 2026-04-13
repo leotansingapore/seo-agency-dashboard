@@ -49,7 +49,7 @@ echo "Period: last 7 days (since $SINCE)" >> "$TMPDIR_REPORT/context.txt"
 echo "" >> "$TMPDIR_REPORT/context.txt"
 
 TOTAL_COMMITS=0
-IDX=0
+IDX=1
 
 for REPO in "${REPOS[@]}"; do
   REPO_NAME="${REPO#*/}"
@@ -165,7 +165,16 @@ Format with these exact sections:
 - Which repos would benefit from Ralph autonomous improvement loops?
 - Suggest 3-5 user stories for each repo's prd.json
 
-Keep under 80 lines. No preamble or sign-off." 2>> "$LOG_FILE")
+Keep under 80 lines. No preamble or sign-off." 2>> "$LOG_FILE" || echo "**Claude CLI failed -- raw data below**
+
+$CONTEXT")
+
+if [[ -z "$AGENDA" ]]; then
+  AGENDA="**Claude CLI unavailable -- raw repo data:**
+
+$CONTEXT"
+  log "WARNING: Claude CLI failed, using raw context as fallback"
+fi
 
 log "Agenda generated (${#AGENDA} chars)"
 
@@ -236,6 +245,6 @@ with open("$STATE_FILE", "w") as f:
     json.dump(state, f, indent=2)
 PYEOF
 
-log "State updated with ${#items:-0} action items"
+log "State updated with action items"
 log "=== SEO Agency scrum master complete ==="
 echo "SEO Agency scrum complete: $TODAY ($TOTAL_COMMITS commits)"

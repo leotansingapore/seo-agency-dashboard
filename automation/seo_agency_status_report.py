@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 SEO Agency Ops -- PM Status Report
-Runs every 3 days. Reports to Lark webhook + Google Sheet.
+Runs Mon + Thu 9am SGT. Reports to Lark webhook + Google Sheet.
 
-Covers 3 repos:
+Covers 4 repos:
 - seomachine (content engine)
 - seo-audit-tool (audit dashboard)
-- build-the-best (client platform)
+- build-the-best (AutoSEO platform)
+- seo-hub-central (agency CRM + portal)
 """
 
 import json
@@ -29,7 +30,7 @@ REPOS = {
     "build-the-best": {"role": "AutoSEO Platform", "path": "build-the-best"},
     "seo-hub-central": {"role": "Agency CRM + Portal", "path": "seo-hub-central"},
 }
-REPORT_WINDOW_DAYS = 3
+REPORT_WINDOW_DAYS = 4  # Mon covers Thu-Mon (4 days), Thu covers Mon-Thu (3 days)
 
 
 def get_recent_commits(repo_name, days=REPORT_WINDOW_DAYS):
@@ -189,7 +190,7 @@ def send_lark_report(summary, all_data):
                 {"tag": "hr"},
                 {
                     "tag": "markdown",
-                    "content": f"[seomachine](https://github.com/{GH_USER}/seomachine) | [seo-audit-tool](https://github.com/{GH_USER}/seo-audit-tool) | [build-the-best](https://github.com/{GH_USER}/build-the-best)",
+                    "content": f"[seomachine](https://github.com/{GH_USER}/seomachine) | [seo-audit-tool](https://github.com/{GH_USER}/seo-audit-tool) | [build-the-best](https://github.com/{GH_USER}/build-the-best) | [seo-hub-central](https://github.com/{GH_USER}/seo-hub-central)",
                 },
             ],
         },

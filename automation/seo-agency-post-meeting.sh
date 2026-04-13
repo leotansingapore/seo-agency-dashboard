@@ -43,7 +43,6 @@ query = """{
         title
         date
         duration
-        participants
         organizer_email
         summary {
             overview
@@ -71,7 +70,7 @@ transcripts = data.get("data", {}).get("transcripts", [])
 for t in transcripts:
     title = (t.get("title") or "").lower()
     if "seo" in title and ("agency" in title or "hub" in title or "machine" in title):
-        print(json.dumps({"id": t["id"], "participants": t.get("participants", [])}))
+        print(json.dumps({"id": t["id"]}))
         sys.exit(0)
 
 # Fallback: Monday/Friday 10-11am SGT window
@@ -84,7 +83,7 @@ for t in transcripts:
     dt = datetime.fromtimestamp(ts / 1000, tz=SGT)
     if dt.strftime("%Y-%m-%d") == today_str and dt.weekday() in (0, 4):
         if 10 <= dt.hour <= 11:
-            print(json.dumps({"id": t["id"], "participants": t.get("participants", [])}))
+            print(json.dumps({"id": t["id"]}))
             sys.exit(0)
 
 # Check Google Meet link match
@@ -96,7 +95,7 @@ for t in transcripts:
     if dt.strftime("%Y-%m-%d") == today_str:
         title = (t.get("title") or "").lower()
         if "sqo-hzmo-iji" in title:
-            print(json.dumps({"id": t["id"], "participants": t.get("participants", [])}))
+            print(json.dumps({"id": t["id"]}))
             sys.exit(0)
 
 sys.exit(1)
@@ -120,7 +119,7 @@ if [[ -z "$TRANSCRIPT_INFO" ]]; then
 fi
 
 TRANSCRIPT_ID=$(echo "$TRANSCRIPT_INFO" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-PARTICIPANTS=$(echo "$TRANSCRIPT_INFO" | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin).get('participants', [])))")
+PARTICIPANTS=""  # Will be extracted from transcript speakers later
 
 # Check already processed
 if python3 -c "
