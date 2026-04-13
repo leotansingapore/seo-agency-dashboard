@@ -379,5 +379,16 @@ card = {
 print(json.dumps(card))
 " <<< "$LARK_TEXT")" > /dev/null 2>&1
 
+# ── 9. Save summary to dashboard repo ────────────────────────────
+DASH_REPO="$HOME/Documents/New project/seo-agency-dashboard"
+if [[ -d "$DASH_REPO/.git" ]]; then
+  mkdir -p "$DASH_REPO/meetings/summaries"
+  cp "$OBSIDIAN_DIR/${TODAY} SEO Agency Meeting.md" "$DASH_REPO/meetings/summaries/${TODAY}.md"
+  cd "$DASH_REPO" && git add -A && \
+    git commit -m "meeting: SEO Agency summary ($TODAY)" 2>> "$LOG_FILE" && \
+    git push 2>> "$LOG_FILE" || true
+  log "Summary pushed to seo-agency-dashboard"
+fi
+
 log "=== SEO Agency post-meeting complete ==="
 echo "SEO Agency post-meeting done: $TODAY (attendees: $SPEAKERS)"
