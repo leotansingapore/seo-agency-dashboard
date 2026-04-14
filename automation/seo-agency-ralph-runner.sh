@@ -188,9 +188,33 @@ if pending:
   # Notify start
   notify_lark "Ralph: $REPO_NAME" "Starting **$STORY_ID**: $STORY_TITLE\n$PENDING_COUNT stories remaining" "blue"
 
-  # Run Ralph iteration
-  local RALPH_OUTPUT=$(claude -p --model sonnet --permission-mode bypassPermissions \
-    "$(cat .ralph/PROMPT.md)" 2>> "$LOG_FILE" || echo "FAILED")
+  # Lock prd.json for this repo (prevents concurrent auto-planner + ralph race)
+  local PRD_LOCK="/tmp/.ralph-prd-${REPO_NAME}.lock"
+  exec 200>"$PRD_LOCK"
+  if ! /usr/bin/env python3 -c "import fcntl,sys; fcntl.flock(sys.stdin, fcntl.LOCK_EX|fcntl.LOCK_NB)" <&200 2>/dev/null; then
+    log "$REPO_NAME: prd.json locked by another process, skipping"
+    return 0
+  fi
+
+  # Run Ralph iteration with retry (up to 3 attempts, backoff 10s/30s)
+  local RALPH_OUTPUT=""
+  local ATTEMPT=0
+  while [[ $ATTEMPT -lt 3 ]]; do
+    ATTEMPT=$((ATTEMPT + 1))
+    RALPH_OUTPUT=$(claude -p --model sonnet --permission-mode bypassPermissions \
+      "$(cat .ralph/PROMPT.md)" 2>> "$LOG_FILE" || echo "")
+    if [[ -n "$RALPH_OUTPUT" && ${#RALPH_OUTPUT} -gt 50 ]]; then
+      break
+    fi
+    log "$REPO_NAME: Ralph attempt $ATTEMPT returned empty/short output, retrying..."
+    sleep $((ATTEMPT * 10))
+  done
+
+  if [[ -z "$RALPH_OUTPUT" || ${#RALPH_OUTPUT} -lt 50 ]]; then
+    log "$REPO_NAME: Ralph returned empty output after 3 attempts"
+    append_blocker "$REPO_NAME" "$STORY_ID" "HIGH" "Ralph claude CLI returned empty output x3 (possible auth issue under launchd)" "Run claude -p manually in shell; check claude CLI auth and launchd PATH"
+    return 0
+  fi
 
   # Check for status block
   if echo "$RALPH_OUTPUT" | grep -q "EXIT_SIGNAL: true"; then
@@ -230,7 +254,9 @@ if pending:
   # Commit + push
   git add -A 2>> "$LOG_FILE"
   if git diff --cached --quiet 2>/dev/null; then
-    log "$REPO_NAME: No changes to commit"
+    log "$REPO_NAME: No changes to commit (Ralph thought but did not write)"
+    append_sheet "$REPO_NAME" "$STORY_ID" "NO_CHANGES" "Ralph produced no file writes"
+    append_blocker "$REPO_NAME" "$STORY_ID" "MEDIUM" "Ralph produced no file diffs for $STORY_ID (prompt unclear or blocked)" "Clarify acceptanceCriteria in .ralph/prd.json or split the story"
     return 0
   fi
 
