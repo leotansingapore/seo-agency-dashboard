@@ -248,6 +248,74 @@ def append_to_google_sheet(summary, all_data):
         _save_local_backup(row_data)
 
 
+def append_blockers(summary, all_data):
+    """Detect blockers and append to Blockers tab in Google Sheet.
+
+    Sources:
+    - Repos with zero commits in the report window (velocity risk)
+    - Repos with open PRs piling up (review backlog)
+    - 'Needs attention' section of the AI summary (one row per bullet)
+    """
+    blockers = []
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # Detect quiet repos
+    for repo_name, data in all_data.items():
+        role = REPOS[repo_name]["role"]
+        if len(data["commits"]) == 0:
+            blockers.append([
+                now, repo_name, "Status Report", "MEDIUM",
+                f"No commits in last {REPORT_WINDOW_DAYS} days ({role})",
+                "",
+                "Confirm Ralph is running, check .ralph/prd.json has pending stories, review logs",
+                "No",
+            ])
+        if data["prs"] >= 3:
+            blockers.append([
+                now, repo_name, "Status Report", "MEDIUM",
+                f"{data['prs']} open PRs accumulating",
+                "",
+                "Review and merge or close stale PRs",
+                "No",
+            ])
+
+    # Parse 'Needs attention' from AI summary
+    if summary and "Needs attention" in summary:
+        tail = summary.split("Needs attention", 1)[1]
+        for line in tail.splitlines():
+            s = line.strip().lstrip("-*").strip()
+            if not s or s.startswith("#") or len(s) < 10:
+                continue
+            if s.lower().startswith("what") or s.startswith("---"):
+                break
+            blockers.append([
+                now, "(multi)", "AI Summary", "LOW",
+                s[:400], "", "Review with CEO at next sync", "No",
+            ])
+
+    if not blockers:
+        print("Blockers: none detected")
+        return
+
+    try:
+        import sys as _sys
+        _sys.path.insert(0, os.path.expanduser("~/Documents/New project/tools"))
+        from lib.sheets import get_sheets_client
+
+        gc = get_sheets_client()
+        ss = gc.open_by_key(SHEET_ID)
+        try:
+            ws = ss.worksheet("Blockers")
+        except Exception:
+            ws = ss.add_worksheet(title="Blockers", rows=500, cols=8)
+            ws.append_row(["Date","Repo","Source","Severity","Blocker","Story ID","Action Needed","Resolved"])
+        for row in blockers:
+            ws.append_row(row)
+        print(f"Blockers: {len(blockers)} row(s) appended")
+    except Exception as e:
+        print(f"Blockers append failed: {e}")
+
+
 def _save_local_backup(row_data):
     """Save report data locally as fallback."""
     backup_dir = os.path.expanduser("~/Documents/New project/.tmp")
@@ -280,6 +348,9 @@ def main():
 
     print("Appending to Google Sheet...")
     append_to_google_sheet(summary, all_data)
+
+    print("Scanning for blockers...")
+    append_blockers(summary, all_data)
 
     print("\nDone.")
 

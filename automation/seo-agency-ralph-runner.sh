@@ -59,10 +59,11 @@ except: pass
 append_sheet() {
   local repo="$1"
   local story_id="$2"
-  local status="$3"
+  local story_status="$3"
   local notes="${4:-}"
   /usr/bin/python3 << PYEOF 2>> "$LOG_FILE" || true
-import sys, os
+import sys, os, warnings
+warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.expanduser("~/Documents/New project/tools"))
 try:
     from lib.sheets import get_sheets_client
@@ -70,9 +71,35 @@ try:
     ss = gc.open_by_key("$SHEET_ID")
     ws = ss.worksheet("Ralph Log")
     from datetime import datetime
-    ws.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), "$repo", "$story_id", "", "$status", "$notes"])
+    ws.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), "$repo", "$story_id", "", "$story_status", "$notes"])
 except Exception as e:
     print(f"Ralph Log append failed: {e}")
+PYEOF
+}
+
+append_blocker() {
+  local repo="$1"
+  local story_id="$2"
+  local severity="$3"
+  local blocker="$4"
+  local action="${5:-Investigate logs}"
+  /usr/bin/python3 << PYEOF 2>> "$LOG_FILE" || true
+import sys, os, warnings
+warnings.filterwarnings("ignore")
+sys.path.insert(0, os.path.expanduser("~/Documents/New project/tools"))
+try:
+    from lib.sheets import get_sheets_client
+    gc = get_sheets_client()
+    ss = gc.open_by_key("$SHEET_ID")
+    try:
+        ws = ss.worksheet("Blockers")
+    except Exception:
+        ws = ss.add_worksheet(title="Blockers", rows=500, cols=8)
+        ws.append_row(["Date","Repo","Source","Severity","Blocker","Story ID","Action Needed","Resolved"])
+    from datetime import datetime
+    ws.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), "$repo", "Ralph Runner", "$severity", "$blocker", "$story_id", "$action", "No"])
+except Exception as e:
+    print(f"Blockers append failed: {e}")
 PYEOF
 }
 
@@ -174,6 +201,7 @@ if pending:
     log "$REPO_NAME: Ralph is blocked"
     notify_lark "Ralph BLOCKED: $REPO_NAME" "$STORY_ID is blocked. Check logs." "yellow"
     append_sheet "$REPO_NAME" "$STORY_ID" "BLOCKED"
+    append_blocker "$REPO_NAME" "$STORY_ID" "HIGH" "Ralph reported STATUS: BLOCKED on $STORY_ID" "Review $LOG_FILE and unblock story or rewrite acceptance criteria"
     return 0
   fi
 
@@ -195,6 +223,7 @@ if pending:
     git checkout main 2>> "$LOG_FILE"
     notify_lark "Ralph BUILD FAIL: $REPO_NAME" "$STORY_ID build failed. Reverted." "red"
     append_sheet "$REPO_NAME" "$STORY_ID" "BUILD_FAIL"
+    append_blocker "$REPO_NAME" "$STORY_ID" "HIGH" "Build failed after Ralph implemented $STORY_ID (changes reverted)" "Check build errors in $LOG_FILE and fix manually or revise story"
     return 0
   fi
 
