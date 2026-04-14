@@ -247,4 +247,13 @@ PYEOF
 
 log "State updated with action items"
 log "=== SEO Agency scrum master complete ==="
+
+/usr/bin/python3 -c "
+import sys, os, warnings
+warnings.filterwarnings('ignore')
+sys.path.insert(0, os.path.expanduser('~/Documents/New project/tools'))
+from lib.heartbeat import beat
+beat('seo-agency-scrum-master', {'commits': $TOTAL_COMMITS})
+" 2>> "$LOG_FILE" || true
+
 echo "SEO Agency scrum complete: $TODAY ($TOTAL_COMMITS commits)"

@@ -405,4 +405,13 @@ if [[ -d "$DASH_REPO/.git" ]]; then
 fi
 
 log "=== SEO Agency post-meeting complete ==="
+
+/usr/bin/python3 -c "
+import sys, os, warnings
+warnings.filterwarnings('ignore')
+sys.path.insert(0, os.path.expanduser('~/Documents/New project/tools'))
+from lib.heartbeat import beat
+beat('seo-agency-post-meeting')
+" 2>> "$LOG_FILE" || true
+
 echo "SEO Agency post-meeting done: $TODAY (attendees: $SPEAKERS)"

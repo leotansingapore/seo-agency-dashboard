@@ -26,6 +26,20 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ralph] $1" | tee -a "$LOG_FILE"; }
 
+heartbeat() {
+  local job="$1"
+  /usr/bin/python3 -c "
+import sys, os, warnings
+warnings.filterwarnings('ignore')
+sys.path.insert(0, os.path.expanduser('~/Documents/New project/tools'))
+try:
+    from lib.heartbeat import beat
+    beat('$job')
+except Exception as e:
+    print(f'heartbeat skipped: {e}')
+" 2>> "$LOG_FILE" || true
+}
+
 # Prevent overlapping runs
 if [[ -f "$LOCK_FILE" ]]; then
   LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
@@ -126,6 +140,74 @@ run_ralph_for_repo() {
   if [[ ! -f ".ralph/prd.json" ]]; then
     log "$REPO_NAME: No .ralph/prd.json, skipping"
     return 0
+  fi
+
+  # Ingest any GitHub issues labeled 'ralph:ready' as new stories
+  INGEST_OUT=$(/usr/bin/python3 << PYEOF 2>> "$LOG_FILE"
+import json, subprocess, re, sys
+try:
+    r = subprocess.run(
+        ["gh","issue","list","--repo","leotansingapore/$REPO_NAME","--label","ralph:ready",
+         "--state","open","--json","number,title,body,labels","--limit","20"],
+        capture_output=True, text=True, timeout=30)
+    issues = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
+except Exception as e:
+    print(f"  gh issue list failed: {e}", file=sys.stderr)
+    issues = []
+
+if not issues:
+    print("0")
+    sys.exit(0)
+
+with open(".ralph/prd.json") as f:
+    prd = json.load(f)
+stories = prd.setdefault("userStories", [])
+existing_issue_nums = {s.get("issueNumber") for s in stories if s.get("issueNumber")}
+
+# Find next id prefix
+ids = [s.get("id","") for s in stories]
+prefixes = [re.match(r"([A-Z]+)-", i) for i in ids]
+prefix = next((m.group(1) for m in prefixes if m), "ISSUE")
+used_nums = [int(m.group(1)) for i in ids for m in [re.search(r"-(\d+)$", i)] if m]
+next_num = max(used_nums, default=0) + 1
+
+added = 0
+for iss in issues:
+    if iss["number"] in existing_issue_nums:
+        continue
+    labels = [l["name"] for l in iss.get("labels", [])]
+    priority = 50 + iss["number"]  # put ingested at low priority by default
+    for L in labels:
+        if L.startswith("ralph:p"):
+            try: priority = int(L.split("p")[1])
+            except Exception: pass
+    story = {
+        "id": f"{prefix}-{next_num:03d}",
+        "title": iss["title"][:120],
+        "description": (iss.get("body") or iss["title"])[:1500],
+        "acceptanceCriteria": ["Addresses the linked GitHub issue", "Build passes"],
+        "priority": priority,
+        "passes": False,
+        "notes": f"Ingested from #{iss['number']}",
+        "issueNumber": iss["number"],
+    }
+    stories.append(story)
+    next_num += 1
+    added += 1
+
+if added:
+    with open(".ralph/prd.json","w") as f:
+        json.dump(prd, f, indent=2)
+    # Commit the ingest so it persists across reruns
+    subprocess.run(["git","add",".ralph/prd.json"], capture_output=True)
+    subprocess.run(["git","commit","-m",f"ralph: ingest {added} issue(s) as stories"], capture_output=True)
+print(added)
+PYEOF
+  )
+  INGESTED=$(echo "$INGEST_OUT" | tail -1)
+  if [[ "$INGESTED" =~ ^[0-9]+$ && "$INGESTED" -gt 0 ]]; then
+    log "$REPO_NAME: ingested $INGESTED issue(s) as stories"
+    git push origin main 2>> "$LOG_FILE" || true
   fi
 
   # Check for pending stories
@@ -300,6 +382,23 @@ Co-Authored-By: Ralph (autonomous) <noreply@anthropic.com>" 2>> "$LOG_FILE"
   notify_lark "Ralph DONE: $REPO_NAME" "Completed **$STORY_ID**: $STORY_TITLE\nPR: $PR_URL\n$((PENDING_COUNT - 1)) stories remaining" "green"
   append_sheet "$REPO_NAME" "$STORY_ID" "COMPLETED"
 
+  # If this story was ingested from a GitHub issue, close it
+  ISSUE_NUM=$(/usr/bin/python3 -c "
+import json
+try:
+    with open('.ralph/prd.json') as f: prd = json.load(f)
+    for s in prd.get('userStories', []):
+        if s.get('id') == '$STORY_ID' and s.get('issueNumber'):
+            print(s['issueNumber']); break
+except Exception: pass
+" 2>/dev/null)
+  if [[ -n "$ISSUE_NUM" ]]; then
+    gh issue close "$ISSUE_NUM" --repo "leotansingapore/$REPO_NAME" \
+      --comment "Resolved by Ralph: $STORY_ID via $PR_URL" 2>> "$LOG_FILE" || \
+      log "$REPO_NAME: issue #$ISSUE_NUM close failed"
+    log "$REPO_NAME: closed linked issue #$ISSUE_NUM"
+  fi
+
   # Switch back to main
   git checkout main 2>> "$LOG_FILE"
 }
@@ -312,3 +411,4 @@ for REPO in "${SEO_REPOS[@]}"; do
 done
 
 log "=== SEO Agency Ralph Runner complete ==="
+heartbeat "seo-agency-ralph-runner"
